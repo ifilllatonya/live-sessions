@@ -1,5 +1,7 @@
 # live-sessions
 
+[![CI](https://github.com/ifilllatonya/live-sessions/actions/workflows/ci.yml/badge.svg)](https://github.com/ifilllatonya/live-sessions/actions/workflows/ci.yml)
+
 A live broadcast layer for a mobile app: a host goes live, members watch, comment and react in real time, and the host can pull someone else on as a co-host.
 
 Extracted and rewritten standalone from a production system I built and maintain: a multi-tenant platform of about 49,000 lines of TypeScript across 41 modules and 71 tables. No client code, data or configuration is in this repository.
