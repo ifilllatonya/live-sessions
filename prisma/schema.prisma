@@ -1,0 +1,113 @@
+// Live broadcast layer. Postgres in production; every query here goes through
+// Prisma so the store is swappable.
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+/// One broadcast. `isActive` is the source of truth for "is this on air";
+/// `lastHostBeatAt` is how we know the host is still holding the phone.
+model LiveSession {
+  id             String    @id @default(cuid())
+  hostId         String
+  hostName       String
+  hostAvatarUrl  String?
+  roomName       String    @unique
+  title          String?
+  isActive       Boolean   @default(true)
+  isLive         Boolean   @default(false)
+  startedAt      DateTime  @default(now())
+  endedAt        DateTime?
+  /// Stamped by the host's screen every 20s. Null for sessions that predate
+  /// heartbeats — see LiveService.reapAbandoned.
+  lastHostBeatAt DateTime?
+
+  comments  LiveComment[]
+  reactions LiveReaction[]
+  guests    LiveGuest[]
+
+  @@index([isActive, startedAt])
+  @@index([isActive, lastHostBeatAt])
+}
+
+/// A chat message on a broadcast. Author name and avatar are denormalised so
+/// the feed renders without a join, and so a deleted account does not blank
+/// out the history of a past broadcast.
+model LiveComment {
+  id            String   @id @default(cuid())
+  sessionId     String
+  userId        String
+  userName      String
+  userAvatarUrl String?
+  text          String
+  createdAt     DateTime @default(now())
+
+  // A one-level reply: the quoted parent is snapshotted rather than joined,
+  // so a reply still reads correctly if the parent is removed.
+  replyToId   String?
+  replyToName String?
+  replyToText String?
+
+  session   LiveSession           @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  reactions LiveCommentReaction[]
+
+  @@index([sessionId, createdAt])
+}
+
+/// One emoji from one person on one comment. The unique constraint is what
+/// makes reacting idempotent and makes "tap again to remove" a delete.
+model LiveCommentReaction {
+  id        String   @id @default(cuid())
+  commentId String
+  userId    String
+  emoji     String
+  createdAt DateTime @default(now())
+
+  comment LiveComment @relation(fields: [commentId], references: [id], onDelete: Cascade)
+
+  @@unique([commentId, userId, emoji])
+  @@index([commentId])
+}
+
+/// A floating emoji on the broadcast itself. Deliberately not deduplicated:
+/// the point is the volume, so a hundred hearts is a hundred rows.
+model LiveReaction {
+  id        String   @id @default(cuid())
+  sessionId String
+  emoji     String
+  createdAt DateTime @default(now())
+
+  session LiveSession @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+
+  @@index([sessionId, createdAt])
+}
+
+enum GuestStatus {
+  INVITED
+  ACTIVE
+  DECLINED
+  ENDED
+}
+
+/// A co-host invited onto the broadcast. The lifecycle is explicit because
+/// each transition is a different thing on screen.
+model LiveGuest {
+  id            String      @id @default(cuid())
+  sessionId     String
+  userId        String
+  userName      String
+  userAvatarUrl String?
+  status        GuestStatus @default(INVITED)
+  invitedAt     DateTime    @default(now())
+  joinedAt      DateTime?
+  endedAt       DateTime?
+
+  session LiveSession @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+
+  @@unique([sessionId, userId])
+  @@index([sessionId, status])
+}
